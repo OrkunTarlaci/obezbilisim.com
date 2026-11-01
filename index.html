@@ -15,14 +15,15 @@
             var n = navigator, c = n.connection || n.mozConnection || n.webkitConnection || {}, cores = n.hardwareConcurrency || 8, mem = n.deviceMemory || 8,
                 q = location.search, d = document.documentElement, slow = false;
             if (/[?&]embed=1/.test(q)) d.classList.add('obez-embed');
-            try { var ts = +localStorage.getItem('obezIntroSlow'); slow = ts && (Date.now() - ts) < 14 * 864e5; } catch (e) { }
+            try { localStorage.removeItem('obezIntroSlow'); } catch (e) { }   // eski sürümün 14 günlük "yavaş cihaz" kilidi artık kullanılmıyor
             if (/[?&]lite=0/.test(q)) return;
             // Ağ yavaş mı? (bağlantı API'si varsa onunla; yoksa — Safari/Firefox — sayfanın ilk baytının geliş süresiyle)
             var nt = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
             var netSlow = c.saveData || /^(slow-2g|2g|3g)$/.test(c.effectiveType || '') || (c.downlink && c.downlink < 1.5) || (c.rtt && c.rtt > 400) ||
                 (!c.effectiveType && ((nt && nt.responseStart && nt.requestStart && nt.responseStart - nt.requestStart > 700) || performance.now() > 1800));
             if (netSlow) d.classList.add('obez-slownet');      // yavaş ağ: web yazı tipi ve açılış dosyaları hiç indirilmez
-            if (/[?&]lite=1/.test(q) || slow || cores <= 4 || mem <= 4 || netSlow) d.classList.add('obez-lite');
+            // Not: Brave gibi tarayıcılar çekirdek/bellek sayısını rastgele (düşük) bildirir → yalnızca gerçekten zayıf değerlerde lite
+            if (/[?&]lite=1/.test(q) || slow || cores <= 2 || mem <= 2 || netSlow) d.classList.add('obez-lite');
         } catch (e) { }
     })();
     </script>
@@ -54,48 +55,24 @@
             var SKIP_ON_HASH = false;           // true: adreste #bölüm varsa atla · false: onda da oynar
             if (REMEMBER_PER_SESSION && seen && !force) return skip('bu oturumda zaten oynatıldı');
             if (SKIP_ON_HASH && w.location.hash && !force) return skip('#bölüm bağlantısı');
-            // Windows "animasyon efektleri" / tarayıcı "hareketi azalt" ayarını dikkate al? (false = ayardan bağımsız HER ZAMAN oynat)
-            var RESPECT_REDUCED_MOTION = false;
-            // Yavaş bilgisayar koruması: true = ≤4 çekirdekli YA DA ≤4 GB belleği olan cihazda 3D açılış hiç başlamaz (site anında açılır).
-            // false = eski davranış (yalnızca ikisi birden zayıfsa atlanır).
-            var STRICT_DEVICE_GATE = true;
-            var mm = w.matchMedia, n = navigator;
-            if (!force) {
-                if (RESPECT_REDUCED_MOTION && mm('(prefers-reduced-motion: reduce)').matches) return skip('"hareketi azalt" ayarı açık');
-                if (n.connection && n.connection.saveData) return skip('veri tasarrufu açık');
-                // YAVAŞ BAĞLANTI / ZAYIF CİHAZ: animasyon (model + site önizlemesi) ikinci bir yük bindirir → doğrudan siteyi aç
-                var cn = n.connection || n.mozConnection || n.webkitConnection;
-                if (cn) {
-                    if (/^(slow-2g|2g|3g)$/.test(cn.effectiveType || '')) return skip('yavaş bağlantı (' + cn.effectiveType + ')');
-                    if (cn.downlink && cn.downlink < 2) return skip('düşük bant genişliği (' + cn.downlink + ' Mbps)');
-                    if (cn.rtt && cn.rtt > 450) return skip('yüksek gecikme (' + cn.rtt + ' ms)');
-                }
-                // Sayfanın ilk baytı geç geldiyse (bağlantı API'si olmayan tarayıcılarda da çalışır) ağ yavaştır: hiçbir ek indirme başlatma
-                var nt = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
-                if (nt && nt.responseStart && nt.requestStart && nt.responseStart - nt.requestStart > 700) return skip('yavaş sunucu/ağ yanıtı (TTFB ' + Math.round(nt.responseStart - nt.requestStart) + ' ms)');
-                if (performance.now() > 1800) return skip('sayfa geç ulaştı (' + Math.round(performance.now()) + ' ms)');
-                if (n.deviceMemory && n.deviceMemory <= 2) return skip('düşük bellekli cihaz');
-                if (n.hardwareConcurrency && n.hardwareConcurrency <= 2) return skip('zayıf işlemci (' + n.hardwareConcurrency + ' çekirdek)');
-                if (n.hardwareConcurrency && n.hardwareConcurrency <= 4 && n.deviceMemory && n.deviceMemory <= 4) return skip('orta/zayıf cihaz (' + n.hardwareConcurrency + ' çekirdek, ' + n.deviceMemory + ' GB)');
-                if (STRICT_DEVICE_GATE && ((n.hardwareConcurrency && n.hardwareConcurrency <= 4) || (n.deviceMemory && n.deviceMemory <= 4))) return skip('yavaş PC koruması (' + (n.hardwareConcurrency || '?') + ' çekirdek, ' + (n.deviceMemory || '?') + ' GB)');
-                try { var ts = +localStorage.getItem('obezIntroSlow'); if (ts && Date.now() - ts < 14 * 864e5) return skip('önceki ziyarette bu cihazda animasyon akıcı çalışmadı (14 gün)'); } catch (e) { }
-            }
-            var c = document.createElement('canvas'), g = c.getContext('webgl2', force ? undefined : { failIfMajorPerformanceCaveat: true });   // yazılımsal (GPU'suz) WebGL'de null döner
-            if (!g) return skip('WebGL2 yok / donanım hızlandırma kapalı / yazılımsal render');
+            // Yavaş ağ / zayıf cihaz için animasyon ATLANMAZ: her koşulda oynar. (Brave vb. çekirdek/bellek/ağ bilgisini rastgele bildirdiği
+            // için bu değerlere göre karar vermek animasyonun "bazen gelmemesine" yol açıyordu.) Yavaş cihazda kalite otomatik düşürülür.
+            var c = document.createElement('canvas'), g = c.getContext('webgl2');
+            if (!g) return skip('WebGL2 yok');
             var lose = g.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext();
             d.classList.add('obez-intro');
             var boot = w.__obezIntro = { force: force };
             boot.t0 = performance.now();
-            boot.budget = force ? 15000 : 4000;     // ms: model + site önizlemesi bu sürede hazır olmazsa animasyon atlanır (bağlantı bilgisi vermeyen Safari/Firefox için de çalışır)
+            boot.budget = 15000;                    // ms: model bu sürede inmezse (çok yavaş ağ) site normal açılır
             boot.abort = w.AbortController ? new AbortController() : null;
-            boot.glb = fetch('intro/laptop.glb?v=2', { priority: 'low', signal: boot.abort ? boot.abort.signal : undefined }).then(function (r) {         // model, sayfa ayrıştırılırken indirilmeye başlar
+            boot.glb = fetch('intro/laptop.glb?v=2', { priority: 'high', signal: boot.abort ? boot.abort.signal : undefined }).then(function (r) {         // model, sayfa ayrıştırılırken indirilmeye başlar
                 if (!r.ok) throw new Error('GLB ' + r.status); return r.arrayBuffer();
             });
-            boot.glb.catch(function (e) { if (e && e.name === 'AbortError') return; skip('model indirilemedi: ' + e.message); });
-            boot.watchdog = setTimeout(function () { d.classList.remove('obez-intro'); }, boot.budget + 1500);   // emniyet
-            // Açılış kodu (63 KB) YALNIZCA animasyon gerçekten oynayacaksa indirilir; yavaş ağ/zayıf cihazda hiç istenmez (sayfanın bant genişliğini yemez)
-            var sc = document.createElement('script'); sc.src = 'intro/obez-intro.js?v=4'; sc.async = true; sc.setAttribute('data-cfasync', 'false');
-            if ('fetchPriority' in sc) sc.fetchPriority = 'low';
+            boot.glb.catch(function () { });
+            // emniyet: açılış kodu hiç gelmezse (engelleyici, ağ hatası) perde kalksın; kod çalışıyorsa karışma (kendi zamanlayıcısı var)
+            boot.watchdog = setTimeout(function () { if (!document.getElementById('obez-intro')) d.classList.remove('obez-intro'); }, 6000);
+            var sc = document.createElement('script'); sc.src = 'intro/obez-intro.js?v=5'; sc.async = true; sc.setAttribute('data-cfasync', 'false');
+            sc.onerror = function () { d.classList.remove('obez-intro'); skip('açılış kodu yüklenemedi'); };
             document.head.appendChild(sc);
         } catch (e) { skip('hata: ' + e.message); }
     })();

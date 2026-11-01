@@ -1,11 +1,11 @@
 /* Obez Bilişim · Service Worker (yavaş internet için önbellek)
  * - Sayfa (HTML): önce ağ (1,2 sn; gelmezse önbellek, ağ arkada önbelleği günceller) → olmazsa önbellek. Güncellemeler hemen görünür.
  * - Aynı alan adındaki diğer dosyalar (intro/obez-intro.js, laptop.glb, favicon...): önbellekten anında gelir,
- *   arka planda güncellenir (stale-while-revalidate). Güncelleme yayınlarken index.html'deki ?v=2 numarasını artır.
+ *   arka planda güncellenir (stale-while-revalidate). Güncelleme yayınlarken index.html'deki ?v=5 numarasını artır.
  * - Üçüncü taraf (CDN) isteklerine dokunmaz; tarayıcı kendi önbelleğini kullanır.
  * Kaldırmak için: repodan sw.js'i sil (tarayıcılar sonraki ziyarette kendiliğinden temizler: aşağıdaki activate).
  */
-const CACHE = 'obez-v5';
+const CACHE = 'obez-v6';
 
 self.addEventListener('install', () => self.skipWaiting());
 

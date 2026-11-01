@@ -25,7 +25,7 @@
   /* ------------------------------------------------------------------ *
    *  Zaman çizelgesi (saniye)
    * ------------------------------------------------------------------ */
-  var T = {
+  var T_D = {
     camA: 3.6,        // kamera: hafif yaklaşma / yükselme (0 → camA)
     lid0: 0.55,       // kapak açılma başlangıcı
     lidDur: 2.9,      // kapak açılma süresi
@@ -35,6 +35,16 @@
     dollyDur: 3.3,
     end: 5.75         // animasyon sonu
   };
+  // Mobil (dikey ekran): kuşbakışı/yandan dönerek inen kamera → kapak açılır → ekrana yaklaşılır →
+  // ekran "portal" gibi dışa doğru genişleyip gerçek MOBİL siteyi açar (masaüstü önizlemesi telefona sığdırılmaya zorlanmaz)
+  var T_M = {
+    camA: 3.1, lid0: 0.45, lidDur: 2.5, wake0: 1.75, wakeDur: 0.8,
+    dolly0: 2.2, dollyDur: 2.2,
+    fade0: 3.55, fadeDur: 0.4,       // ekrandaki masaüstü önizlemesi sitenin zemin rengine söner
+    portal0: 3.85, portalDur: 1.0,   // ekran çerçevesinden dışa açılan delik → altta gerçek sayfa
+    end: 4.85
+  };
+  var T = T_D;
   var FOV_LAND = 30 * Math.PI / 180, FOV_PORT = 46 * Math.PI / 180;
   var FOV = FOV_LAND;               // layout() içinde ekran oranına göre seçilir (dikey ekranda geniş açı → kamera laptopa yaklaşır)
 
@@ -89,15 +99,13 @@
   var dpr = 1, W = 0, H = 0, running = false, t = 0, lastNow = 0;
   var resizeTimer = 0;
   // ---- Kalite kademesi (yavaş PC): 0 yüksek · 1 orta · 2 düşük. Çözünürlük, MSAA ve anisotropi buna göre düşer.
-  var Q = 0, resScale = 1, perfN = 0, perfSum = 0, perfBad = 0, perfSkipFrames = 0;
+  var Q = 0, resScale = 1, perfN = 0, perfSum = 0, perfSkipFrames = 0;
   var DPR_CAP = [2, 1.5, 1], MAXPX_L = [4.6e6, 2.6e6, 1.4e6], MAXPX_S = [2.4e6, 1.8e6, 1.0e6], ANISO = [8, 4, 1];
-  var SLOW_KEY = 'obezIntroSlow';
   function detectTier() {
     var n = navigator, s = 0, c = n.hardwareConcurrency || 8, m = n.deviceMemory || 8;   // bilinmiyorsa cezalandırma
-    if (c <= 4) s++; if (m <= 4) s++; if (c <= 2) s++;
-    return s >= 2 ? 2 : s;
+    if (c <= 2) s++; if (m <= 2) s++;
+    return s;
   }
-  function markSlow() { try { localStorage.setItem(SLOW_KEY, String(Date.now())); } catch (e) { } root.classList.add('obez-lite'); }
   function applyCanvasSize() {
     els.canvas.width = Math.max(2, Math.round(W * dpr * resScale)); els.canvas.height = Math.max(2, Math.round(H * dpr * resScale));
   }
@@ -140,6 +148,8 @@
       '#obez-intro .oi-skip.show{opacity:1}' +
       '#obez-intro .oi-skip:hover{color:#fff;border-color:#D4AF37}' +
       '#obez-intro .oi-skip:focus-visible{outline:2px solid #D4AF37;outline-offset:3px}' +
+      '@media (max-aspect-ratio:5/4){#obez-intro .oi-skip{right:auto;left:50%;transform:translateX(-50%);bottom:calc(22px + env(safe-area-inset-bottom,0px));padding:11px 22px}' +
+      '#obez-intro .oi-brand{bottom:calc(84px + env(safe-area-inset-bottom,0px));font-size:11px;letter-spacing:.5em}}' +
       '#obez-intro .oi-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}';
     document.head.appendChild(css);
 
@@ -609,16 +619,16 @@
     });
   }
 
+  var steamV = new Float32Array(20);
   function drawSteam(time) {
     var amt = smooth(0.3, 1.3, time); if (amt <= 0) return;
     var rx = mView[0], ry = mView[4], rz = mView[8], ux = mView[1], uy = mView[5], uz = mView[9];
     var hw = 0.14, hh = 0.26, cx = L.mug.x, cy = L.floorY + 0.245 + hh, cz = L.mug.z;
-    var v = new Float32Array([
-      cx - rx * hw - ux * hh, cy - ry * hw - uy * hh, cz - rz * hw - uz * hh, 0, 0,
-      cx + rx * hw - ux * hh, cy + ry * hw - uy * hh, cz + rz * hw - uz * hh, 1, 0,
-      cx - rx * hw + ux * hh, cy - ry * hw + uy * hh, cz - rz * hw + uz * hh, 0, 1,
-      cx + rx * hw + ux * hh, cy + ry * hw + uy * hh, cz + rz * hw + uz * hh, 1, 1
-    ]);
+    var v = steamV, i = 0, sx, sy;
+    for (sy = -1; sy <= 1; sy += 2) for (sx = -1; sx <= 1; sx += 2) {
+      v[i++] = cx + sx * rx * hw + sy * ux * hh; v[i++] = cy + sx * ry * hw + sy * uy * hh; v[i++] = cz + sx * rz * hw + sy * uz * hh;
+      v[i++] = (sx + 1) / 2; v[i++] = (sy + 1) / 2;
+    }
     var st = G.steam; gl.useProgram(st.p);
     gl.uniformMatrix4fv(st.u.uVP, false, mVP); gl.uniform1f(st.u.uT, time); gl.uniform1f(st.u.uAmt, amt);
     gl.bindBuffer(gl.ARRAY_BUFFER, G.steamBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, v);
@@ -717,6 +727,7 @@
     // Dikey/dar ekran (telefon): ekranda sitenin masaüstü hali (3:2) açılır, bitişte gerçek mobil siteye yumuşak geçiş yapılır.
     L.virtual = (W / H) < 1.25;
     FOV = L.virtual ? FOV_PORT : FOV_LAND;
+    T = L.virtual ? T_M : T_D;
     if (L.virtual) {
       var iw = 1280, ih = Math.round(iw * L.qh / L.qw);
       L.k = iw / L.qw; L.ew = iw; L.eh = ih;
@@ -749,10 +760,12 @@
       // d = (laptop yarı genişliği) / (yatay görüş yarıçapı · doluluk). Yüksek bakış açısı + hafif yan açı: kapalı laptop dikey kadraja dolgun oturur.
       var HW = L.qw * 0.62;                                      // laptop gövdesi ≈ ekran genişliğinin 1,2 katı → yarısı
       var fit = function (fill) { return HW / (th * asp * fill); };
+      // Masaüstünden farklı: kamera kuşbakışı + yandan başlar, laptopun etrafında dönerek öne iner;
+      // sonda ekran telefonun genişliğinin ~%88'ini kaplar (tamamını değil) → portal oradan açılır.
       CAM = {
-        p0: { az: 24 * Math.PI / 180, el: 40 * Math.PI / 180, ld: Math.log(fit(0.80)), tx: 0.10, ty: 0.02, tz: 0.04 },
-        p1: { az: -4 * Math.PI / 180, el: 19 * Math.PI / 180, ld: Math.log(fit(0.90)), tx: 0, ty: 0.26, tz: 0.22 },
-        pF: { az: L.final.az, el: L.final.el, ld: L.final.ld, tx: C[0], ty: C[1], tz: C[2] }
+        p0: { az: 68 * Math.PI / 180, el: 62 * Math.PI / 180, ld: Math.log(fit(0.92)), tx: 0.05, ty: 0.0, tz: 0.0 },
+        p1: { az: -6 * Math.PI / 180, el: 21 * Math.PI / 180, ld: Math.log(fit(0.90)), tx: 0, ty: 0.24, tz: 0.2 },
+        pF: { az: L.final.az, el: L.final.el, ld: L.final.ld + Math.log(1 / 0.88), tx: C[0], ty: C[1], tz: C[2] }
       };
     } else {
       var af = Math.max(1, Math.pow(1.75 / asp, 0.8));            // dar/yüksek pencerede kamerayı geri çek (laptop taşmasın)
@@ -878,7 +891,11 @@
     // Bitişe yakın canvas'ı sön: iframe, pencereyi piksel piksel doldurur
     if (s.eB > 0.9 && !L.virtual) { els.canvas.style.transition = 'none'; els.canvas.style.opacity = 1 - smooth(0.985, 1.0, s.eB); }
     else if (DEBUG && els.canvas.style.opacity !== '1') { els.canvas.style.transition = 'none'; els.canvas.style.opacity = 1; }
-    els.iframe.style.opacity = s.wake;
+    if (L.virtual) {
+      els.iframe.style.opacity = s.wake * (1 - smooth(T.fade0, T.fade0 + T.fadeDur, time));
+      if (time >= T.fade0 - 0.2 && !DEBUG) revealPage();
+      applyPortal(easeIO(clamp01((time - T.portal0) / T.portalDur)));
+    } else els.iframe.style.opacity = s.wake;
     els.brand.style.opacity = s.brand;
     return s;
   }
@@ -893,7 +910,7 @@
     mEl[8] = n[0] / k; mEl[9] = n[1] / k; mEl[10] = n[2] / k; mEl[11] = 0;
     mEl[12] = C[0] - ax[0] * hx - ay[0] * hy; mEl[13] = C[1] - ax[1] * hx - ay[1] * hy; mEl[14] = C[2] - ax[2] * hx - ay[2] * hy; mEl[15] = 1;
     mMul(mFin, mVP, mEl);
-    var m = mFin, out = new Array(16);
+    var m = mFin, out = scrOut;
     for (var j = 0; j < 4; j++) {
       var x = m[j * 4], y = m[j * 4 + 1], z = m[j * 4 + 2], w = m[j * 4 + 3];
       out[j * 4] = 0.5 * W * (x + w);
@@ -901,8 +918,38 @@
       out[j * 4 + 2] = z;
       out[j * 4 + 3] = w;
     }
-    els.screen.style.transform = 'matrix3d(' + out.join(',') + ')';
-    els.screen.style.visibility = 'visible';
+    var tf = 'matrix3d(' + out.join(',') + ')';
+    if (tf !== lastTf) { els.screen.style.transform = tf; lastTf = tf; }
+    if (!scrShown) { els.screen.style.visibility = 'visible'; scrShown = true; }
+    if (L.virtual) {          // ekran köşelerinin pencere (px) koordinatları: sol-üst, sağ-üst, sağ-alt, sol-alt
+      for (var c = 0; c < 4; c++) {
+        var u = (c === 1 || c === 2) ? L.ew : 0, vv = c >= 2 ? L.eh : 0;
+        var X = out[0] * u + out[4] * vv + out[12], Y = out[1] * u + out[5] * vv + out[13], Wc = out[3] * u + out[7] * vv + out[15];
+        L.corners[c * 2] = X / Wc; L.corners[c * 2 + 1] = Y / Wc;
+      }
+    }
+  }
+  var scrOut = new Array(16), lastTf = '', scrShown = false;
+
+  /* Mobil final: overlay'de ekran biçiminde bir delik açılır ve dışa doğru büyür; delikten gerçek (mobil) site görünür. */
+  var revealed = false;
+  function revealPage() {             // ana sayfayı boyamaya başla (overlay hâlâ üstte → görünür değişiklik yok)
+    if (revealed) return; revealed = true;
+    root.classList.remove('obez-intro');
+    inertList.forEach(function (c) { c.inert = false; });
+    inertList = [];
+  }
+  var PORTAL_X = [-0.25, 1.25, 1.25, -0.25], PORTAL_Y = [-0.25, -0.25, 1.25, 1.25];
+  function applyPortal(p) {
+    if (p <= 0) return;
+    var c = L.corners, pts = '';
+    for (var i = 0; i < 4; i++) {
+      var x = c[i * 2] + (PORTAL_X[i] * W - c[i * 2]) * p, y = c[i * 2 + 1] + (PORTAL_Y[i] * H - c[i * 2 + 1]) * p;
+      pts += ',' + x.toFixed(1) + 'px ' + y.toFixed(1) + 'px';
+    }
+    // dış dikdörtgen + iç dörtgen (evenodd) = ortası delik overlay
+    var cp = 'polygon(evenodd,0 0,' + W + 'px 0,' + W + 'px ' + H + 'px,0 ' + H + 'px,0 0' + pts + pts.slice(0, pts.indexOf(',', 1)) + ')';
+    overlay.style.webkitClipPath = cp; overlay.style.clipPath = cp;
   }
 
   /* ------------------------------------------------------------------ *
@@ -915,18 +962,15 @@
     if (!running) return;
     t += dt;
     // Sürekli uyarlanabilir çözünürlük (zorlama modunda devre dışı): 24 kare / 0,7 sn'lik pencerelerle ölç.
-    // Ortalama kare süresi >34 ms (<~30 fps) ise çözünürlüğü %22 düşür; en düşükte de yetmezse animasyonu bırak, siteyi aç.
+    // Ortalama kare süresi >34 ms (<~30 fps) ise çözünürlüğü %22 düşür (en az %45).
     if (!FORCE && t > 0.25) {
       if (perfSkipFrames > 0) perfSkipFrames--;
       else {
         perfN++; perfSum += Math.min(raw, 0.25);
         if (perfN >= 24 || perfSum >= 0.7) {          // 24 kare YA DA 0,7 sn dolunca (çok yavaş cihazda hızlı tepki)
           var avg = perfSum / perfN; perfN = 0; perfSum = 0;
-          if (avg > 0.034) {
-            perfBad++;
-            if (avg > 0.09 && perfBad >= 2) { markSlow(); finish('skip'); return; }   // 11 fps altı: umutsuz
-            if (resScale > 0.55) { resScale *= 0.78; applyCanvasSize(); perfSkipFrames = 6; root.classList.add('obez-lite'); }
-            else { markSlow(); finish('skip'); return; }
+          if (avg > 0.034 && resScale > 0.45) {      // yavaşsa çözünürlüğü kademeli düşür (animasyon her durumda sonuna kadar oynar)
+            resScale = Math.max(0.45, resScale * 0.78); applyCanvasSize(); perfSkipFrames = 6;
           }
         }
       }
@@ -946,9 +990,7 @@
     try { if (boot && boot.abort) boot.abort.abort(); } catch (e) { }   // yarım kalan model indirmesi ana sitenin bant genişliğini yemesin
 
     // Kaydırma kilidini ve erişilebilirlik kilidini bırak (overlay hâlâ üstte → görünür sıçrama yok)
-    root.classList.remove('obez-intro');
-    inertList.forEach(function (c) { c.inert = false; });
-    inertList = [];
+    revealPage();
     var killStyle = function () { var s = document.getElementById('obez-intro-style'); if (s) s.remove(); };
 
     var cleanup = function () {
@@ -958,13 +1000,14 @@
       killStyle();
     };
     if (mode === 'error' || !overlay) { cleanup(); return; }
+    if (mode === 'done' && L.virtual) { requestAnimationFrame(cleanup); return; }   // portal tüm ekranı zaten açtı
     // iki kare bekle: ana sayfa kilit kalkınca düzenini otursun, sonra kısa çapraz geçiş
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         overlay.style.pointerEvents = 'none';
-        overlay.style.transition = 'opacity ' + (mode === 'done' ? (L.virtual ? '.7s' : '.3s') : '.45s') + ' ease';
+        overlay.style.transition = 'opacity ' + (mode === 'done' ? '.3s' : '.45s') + ' ease';
         overlay.style.opacity = '0';
-        setTimeout(cleanup, mode === 'done' ? (L.virtual ? 780 : 360) : 520);
+        setTimeout(cleanup, mode === 'done' ? 360 : 520);
       });
     });
   }
@@ -983,8 +1026,8 @@
   }
   function waitIframe(ms) {
     // Hazır = sayfa ayrıştırıldı (Bootstrap CSS uygulanmış) + kısa bekleme; fontların/ikonların bitmesi beklenmez.
-    // Süre içinde olmazsa (yavaş bağlantı) yarım yüklenmiş siteyi göstermek yerine animasyon atlanır.
-    return new Promise(function (res, rej) {
+    // Süre içinde olmazsa (yavaş bağlantı) animasyon yine başlar; önizleme ekran açılırken yüklenmeye devam eder.
+    return new Promise(function (res) {
       var done = false, tm, poll, since = 0;
       function ok() { if (done) return; done = true; clearTimeout(tm); clearInterval(poll); res(); }
       els.iframe.addEventListener('load', ok, { once: true });
@@ -992,13 +1035,13 @@
         try {
           var d = els.iframe.contentDocument;
           if (d && d.readyState !== 'loading' && /embed=1/.test(d.location.href)) {
-            if (!since) since = performance.now(); else if (performance.now() - since > 700) ok();
+            if (!since) since = performance.now(); else if (performance.now() - since > 350) ok();
           }
         } catch (e) { }
       }, 100);
       tm = setTimeout(function () {
         if (done) return; done = true; clearInterval(poll);
-        if (FORCE) res(); else rej(new Error('site önizlemesi zamanında yüklenmedi (yavaş bağlantı)'));
+        res();
       }, ms);
     });
   }
@@ -1007,7 +1050,7 @@
   /* ------------------------------------------------------------------ *
    *  Başlangıç kalibrasyonu: en ağır kareyi (kapak açık, tüm eşyalar görünür) animasyondan ÖNCE birkaç kez çizip
    *  gerçek kare süresini ölçer. Yavaşsa çözünürlük baştan düşürülür (animasyon takılarak başlayıp sonra düzelmez);
-   *  en düşük çözünürlükte de yavaşsa animasyon hiç gösterilmez, site doğrudan açılır.
+   *  yalnızca GPU'suz (yazılımsal) çizim gibi oynatılamayacak durumlarda animasyon atlanır.
    * ------------------------------------------------------------------ */
   var syncPx = new Uint8Array(4);
   function gpuSync() { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, syncPx); }   // gl.finish() bazı tarayıcılarda beklemez; tek piksel okuma GPU'nun işi bitirmesini zorunlu bekler
@@ -1019,12 +1062,11 @@
   }
   function calibrate() {
     var ms = probeMs(), tries = 0;
-    while (ms > 26 && tries < 3) {                    // hedef ≤ ~26 ms/kare (~38 fps) — GPU yükü çözünürlükle orantılı
-      var next = Math.max(0.5, resScale * Math.sqrt(24 / ms));
+    while (ms > 26 && tries < 4) {                    // hedef ≤ ~26 ms/kare (~38 fps) — GPU yükü çözünürlükle orantılı
+      var next = Math.max(0.45, resScale * Math.sqrt(24 / ms));
       if (next >= resScale - 0.02) break;
       resScale = next; applyCanvasSize(); tries++; ms = probeMs();
     }
-    if (resScale < 1) root.classList.add('obez-lite');
     return ms;
   }
 
@@ -1032,14 +1074,13 @@
     clearTimeout(boot.watchdog);
     Q = detectTier();
     // yükleme çok uzarsa (yavaş ağ/GPU sorunu) sessizce normal siteye dön — süre, <head> script'inin başladığı andan itibaren sayılır
-    var left = Math.max(800, (boot.budget || 15000) - (performance.now() - (boot.t0 || performance.now())));
-    boot.watchdog = setTimeout(function () { if (!running && !finished && !DEBUG) fail(new Error('zaman aşımı (yavaş bağlantı)')); }, left);
+    var left = Math.max(3000, (boot.budget || 15000) - (performance.now() - (boot.t0 || performance.now())));
+    boot.watchdog = setTimeout(function () { if (!running && !finished && !DEBUG) fail(new Error('zaman aşımı (model indirilemedi)')); }, left);
     buildOverlay();
     setProgress(0.08);
     // Gerçek siteyi ekran içeriği olarak yükle (aynı URL, ?embed=1 → intro tekrar çalışmaz)
     els.iframe.src = location.pathname + '?embed=1';
-    var iframeReady = waitIframe(FORCE ? 7000 : left);
-    iframeReady.catch(fail);            // önizleme hazır olmayacaksa model beklemeden hemen vazgeç
+    L.corners = new Float32Array(8);
 
     var glbP = boot.glb || fetch(new URL('laptop.glb', SCRIPT_SRC || location.href).href).then(function (r) {
       if (!r.ok) throw new Error('GLB ' + r.status); return r.arrayBuffer();
@@ -1062,10 +1103,10 @@
       layout();
       if (!FORCE && !DEBUG) {
         var ms = calibrate();
-        if (ms > 48 || (ms > 30 && resScale <= 0.5)) { markSlow(); throw new Error('cihaz çok yavaş (kare ' + Math.round(ms) + ' ms)'); }
+        if (ms > 140) throw new Error('GPU çok yavaş / yazılımsal çizim (kare ' + Math.round(ms) + ' ms)');
       }
       renderAt(0);                       // ilk kare (sahne hazır)
-      return iframeReady;
+      return waitIframe(2500);           // sahne hazır: site önizlemesi için en fazla 2,5 sn daha bekle
     }).then(function () {
       if (finished) return;
       setProgress(1);
