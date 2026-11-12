@@ -728,6 +728,7 @@
     L.virtual = (W / H) < 1.25;
     FOV = L.virtual ? FOV_PORT : FOV_LAND;
     T = L.virtual ? T_M : T_D;
+    if (!L.virtual && overlay.style.clipPath) { overlay.style.clipPath = ''; overlay.style.webkitClipPath = ''; }
     if (L.virtual) {
       var iw = 1280, ih = Math.round(iw * L.qh / L.qw);
       L.k = iw / L.qw; L.ew = iw; L.eh = ih;
@@ -893,7 +894,7 @@
     else if (DEBUG && els.canvas.style.opacity !== '1') { els.canvas.style.transition = 'none'; els.canvas.style.opacity = 1; }
     if (L.virtual) {
       els.iframe.style.opacity = s.wake * (1 - smooth(T.fade0, T.fade0 + T.fadeDur, time));
-      if (time >= T.fade0 - 0.2 && !DEBUG) revealPage();
+      if (running && time >= T.fade0 - 0.2) revealPage();
       applyPortal(easeIO(clamp01((time - T.portal0) / T.portalDur)));
     } else els.iframe.style.opacity = s.wake;
     els.brand.style.opacity = s.brand;
@@ -965,8 +966,8 @@
     // Ortalama kare süresi >34 ms (<~30 fps) ise çözünürlüğü %22 düşür (en az %45).
     if (!FORCE && t > 0.25) {
       if (perfSkipFrames > 0) perfSkipFrames--;
-      else {
-        perfN++; perfSum += Math.min(raw, 0.25);
+      else if (raw <= 0.2) {                           // >0,2 sn: arka plandaki/kısılmış sekme (GPU yavaşlığı değil) → ölçüme katma
+        perfN++; perfSum += raw;
         if (perfN >= 24 || perfSum >= 0.7) {          // 24 kare YA DA 0,7 sn dolunca (çok yavaş cihazda hızlı tepki)
           var avg = perfSum / perfN; perfN = 0; perfSum = 0;
           if (avg > 0.034 && resScale > 0.45) {      // yavaşsa çözünürlüğü kademeli düşür (animasyon her durumda sonuna kadar oynar)
@@ -1035,6 +1036,7 @@
         try {
           var d = els.iframe.contentDocument;
           if (d && d.readyState !== 'loading' && /embed=1/.test(d.location.href)) {
+            if (d.readyState === 'complete') return ok();
             if (!since) since = performance.now(); else if (performance.now() - since > 350) ok();
           }
         } catch (e) { }
