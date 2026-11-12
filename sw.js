@@ -5,7 +5,7 @@
  * - Üçüncü taraf (CDN) isteklerine dokunmaz; tarayıcı kendi önbelleğini kullanır.
  * Kaldırmak için: repodan sw.js'i sil (tarayıcılar sonraki ziyarette kendiliğinden temizler: aşağıdaki activate).
  */
-const CACHE = 'obez-v7';
+const CACHE = 'obez-v8';
 
 self.addEventListener('install', () => self.skipWaiting());
 
